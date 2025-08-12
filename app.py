@@ -97,8 +97,17 @@ def oai_text(system: str, user: str, temperature=0.2, max_tokens=800) -> str:
         return ""
 
 def build_payload_for_summary(ctx: Dict[str, Any]) -> Dict[str, Any]:
-    gen = {k:v for k,v in ctx["general_answers"].items() if k not in ctx["general_skipped"] and str(v).strip() != ""}
-    prob = {k:v for k,v in ctx["problem_answers"].items() if k not in ctx["problem_skipped"] and str(v).strip() != ""}
+    def is_present(value: Any) -> bool:
+        try:
+            text = str(value).strip()
+        except Exception:
+            return False
+        return text != "" and text.upper() != "N/A"
+
+    gen = {k: v for k, v in ctx["general_answers"].items()
+           if k not in ctx["general_skipped"] and is_present(v)}
+    prob = {k: v for k, v in ctx["problem_answers"].items()
+           if k not in ctx["problem_skipped"] and is_present(v)}
     return {
         "session_id": st.session_state.sid,
         "timestamp": datetime.utcnow().isoformat(),
@@ -294,17 +303,28 @@ if ctx.get("general_schema") is None:
     ctx["general_schema"] = FIXED_GENERAL_SCHEMA
 
 SUMMARY_PROMPT = """
-You are a clinical scribe. Create a patient-friendly but clinically organized summary from the provided context.
+You are an experienced clinical scribe for outpatient consults. Generate a tight, high-signal summary STRICTLY from the provided JSON context.
 
-Output format:
-1) Short Narrative Paragraph (3-5 sentences) that stitches key details together for the main concern.
-2) Key Points (bulleted) under these headings: Presenting Concerns; History of Present Illness; Relevant History; Medications/Allergies; Lifestyle; Red Flags/Considerations; Impression & Plan Suggestions (non-diagnostic).
+Output format (Markdown):
+### Clinical Narrative (3–5 sentences)
+- Stitch together the main concern, onset/duration, severity/pattern, key modifiers/triggers, associated symptoms, treatments tried + response, and any important comorbidities or constraints. Prioritize items relevant to the appointment type.
+- Refer to the patient as "the patient" (do NOT use names). Do NOT include any PII (addresses, phone, email).
+
+### Key Points
+- Presenting Concerns
+- History of Present Illness
+- Relevant History (PMHx/PSHx/FHx)  
+- Medications/Allergies
+- Lifestyle
+- Red Flags/Considerations
+- Information Gaps (what is missing or would be helpful)
+- Impression & Plan Suggestions (non-diagnostic; safe, practical next steps)
 
 Rules:
-- Be concise (≤ 250 words total). Use only the data provided; do not invent details.
-- Include explicit negatives where available (e.g., "No drug allergies reported").
-- If sections have no data, omit that bullet or write "Not specified" sparingly.
-- Focus on items relevant to the presenting concern first, then supportive details.
+- Use ONLY facts present in the JSON; never invent. If a fact is explicitly "N/A" or absent, treat it as not provided.
+- Include explicit negatives when present (e.g., "No known drug allergies").
+- Keep bullets short; prefer clinically meaningful phrasing. Keep total ≤ 220 words.
+- Maintain neutral, non-judgmental tone. Avoid definitive diagnoses.
 
 Context (JSON):
 {context_json}
